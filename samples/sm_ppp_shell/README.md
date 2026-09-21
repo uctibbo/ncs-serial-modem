@@ -2,7 +2,7 @@
 
 This sample now brings up PPP automatically, synchronizes UTC with
 `time.google.com` using SNTP, and requests `https://httpbin.org/get` on a dedicated
-thread. The default start-to-start interval is 30 seconds. There is no need to
+thread. The default start-to-start interval is 60 seconds. There is no need to
 enter `net iface up 1` after boot.
 
 Each cycle uses a new TCP/TLS connection, requires certificate-chain, date and
@@ -27,7 +27,7 @@ NCS_TOOLCHAIN=/home/uc/ncs/toolchains/43683a87ea \
 ```
 
 The flash image is `build/merged.hex`. Change
-`CONFIG_HTTPS_TEST_INTERVAL_SECONDS=30` in `prj.conf`, then rebuild with:
+`CONFIG_HTTPS_TEST_INTERVAL_SECONDS=60` in `prj.conf`, then rebuild with:
 
 ```sh
 NCS_TOOLCHAIN=/home/uc/ncs/toolchains/43683a87ea \
@@ -75,7 +75,7 @@ https_test: cycle=1 SUCCESS status=200 bytes=253 complete=1 duration_ms=1200 err
   resources are released, and the shell remains responsive. Restore connectivity
   and verify subsequent cycles succeed.
 - Set the interval to one second temporarily to exercise missed-deadline logging
-  with slower requests; there must be no concurrent/catch-up requests. Restore 30.
+  with slower requests; there must be no concurrent/catch-up requests. Restore 60.
 - For certificate rejection tests, temporarily use a wrong CA, wrong hostname,
   or an out-of-validity clock in a separate test build; none may report SUCCESS.
   Do not disable verification to make a connection work.

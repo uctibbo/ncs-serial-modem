@@ -3,6 +3,6 @@ mainmenu "Serial Modem periodic HTTPS test"
 config HTTPS_TEST_INTERVAL_SECONDS
     int "HTTPS request start-to-start interval in seconds"
     range 1 86400
-    default 30
+    default 60
 
 source "Kconfig.zephyr"
