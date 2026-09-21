@@ -10,3 +10,7 @@ find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(app)
 
 target_sources(app PRIVATE src/main.c)
+
+# Apply certificate date validation to the TLS library as well as the app.
+zephyr_include_directories(src)
+zephyr_compile_definitions(MBEDTLS_USER_CONFIG_FILE="tls_time.h")
