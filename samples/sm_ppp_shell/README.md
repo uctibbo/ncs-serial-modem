@@ -34,6 +34,50 @@ NCS_TOOLCHAIN=/home/uc/ncs/toolchains/43683a87ea \
   ~/bin/ncs-west v3.2.1 build -d build
 ```
 
+## Host-controlled cellular power profiles
+
+The nRF54 can configure the nRF9151 modem before starting CMUX and PPP. It
+temporarily uses the Serial Modem AT interface, verifies the requested setting,
+releases the UART, and then starts the normal cellular driver. The Serial Modem
+firmware on the nRF9151 is unchanged.
+
+Build profile 1, registered with PSM and eDRX disabled:
+
+```sh
+NCS_TOOLCHAIN=/home/uc/ncs/toolchains/43683a87ea \
+  ~/bin/ncs-west v3.2.1 build --sysbuild -p always \
+  -b raytac_an54l15q_db/nrf54l15/cpuapp \
+  -d build-host-registered . -- \
+  -DZEPHYR_EXTRA_MODULES=/home/uc/Documents/appblocks/ncs-serial-modem \
+  -DEXTRA_CONF_FILE=overlay-power-registered.conf
+```
+
+Build profile 2, PSM requested with eDRX disabled:
+
+```sh
+NCS_TOOLCHAIN=/home/uc/ncs/toolchains/43683a87ea \
+  ~/bin/ncs-west v3.2.1 build --sysbuild -p always \
+  -b raytac_an54l15q_db/nrf54l15/cpuapp \
+  -d build-host-psm . -- \
+  -DZEPHYR_EXTRA_MODULES=/home/uc/Documents/appblocks/ncs-serial-modem \
+  -DEXTRA_CONF_FILE=overlay-power-psm.conf
+```
+
+Flash only the corresponding nRF54 `merged.hex`. Continue using the unchanged
+nRF9151 Serial Modem image:
+
+- `build-host-registered/merged.hex`
+- `build-host-psm/merged.hex`
+
+The registered build must log
+`Host power profile: registered; PSM=off; eDRX=off; verified` before PPP starts.
+The PSM build must log `Host power profile: PSM=requested` with the requested
+TAU and Active-Time. A verification failure stops the HTTPS worker so a power
+measurement cannot silently run with the wrong profile. `AT+CPSMS?` verifies
+the request stored by the modem; the network-granted timers still depend on the
+serving network. Confirm actual PSM entry electrically or through a separate
+diagnostic run.
+
 Requests begin after PPP has a preferred IPv4 address and SNTP succeeds. Failed
 SNTP attempts retry after 10 seconds; HTTPS is not attempted with an unset clock.
 The host waits two seconds before its first PPP start so the Serial Modem can

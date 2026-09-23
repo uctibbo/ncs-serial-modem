@@ -815,10 +815,10 @@ int sm_at_client_init(sm_data_handler_t handler, bool automatic, k_timeout_t ina
 	k_work_init(&dtr_config.dtr_uart_enable_work, dtr_uart_enable_work_fn);
 	k_work_init_delayable(&dtr_config.dtr_uart_disable_work, dtr_uart_disable_work_fn);
 
-	/* Initialize shell pointer so it's available for printing in callbacks */
-#if defined(CONFIG_SHELL_BACKEND_SERIAL)
+	/* Initialize shell pointer so it's available for printing in shell callbacks. */
+#if defined(CONFIG_SM_AT_CLIENT_SHELL) && defined(CONFIG_SHELL_BACKEND_SERIAL)
 	global_shell = shell_backend_uart_get_ptr();
-#elif defined(CONFIG_SHELL_BACKEND_RTT)
+#elif defined(CONFIG_SM_AT_CLIENT_SHELL) && defined(CONFIG_SHELL_BACKEND_RTT)
 	global_shell = shell_backend_rtt_get_ptr();
 #endif
 

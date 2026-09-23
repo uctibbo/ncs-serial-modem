@@ -14,6 +14,7 @@
 #include <zephyr/net/socket.h>
 #include <zephyr/net/tls_credentials.h>
 #include "httpbin_ca.h"
+#include "host_power_profile.h"
 
 LOG_MODULE_REGISTER(https_test, LOG_LEVEL_INF);
 
@@ -144,7 +145,7 @@ static int start_ppp(struct net_if *iface)
 	return 0;
 }
 
-static void restart_ppp(struct net_if *iface)
+static int restart_ppp(struct net_if *iface)
 {
 	int ret;
 
@@ -155,7 +156,7 @@ static void restart_ppp(struct net_if *iface)
 		LOG_WRN("Cannot stop PPP for recovery: %d", ret);
 	}
 	k_sleep(K_SECONDS(PPP_RESTART_DELAY_SECONDS));
-	(void)start_ppp(iface);
+	return start_ppp(iface);
 }
 
 static void https_worker(void *a, void *b, void *c)
@@ -185,6 +186,11 @@ static void https_worker(void *a, void *b, void *c)
 	/* On simultaneous board power-up, let Serial Modem advertise Ready before
 	 * the cellular driver sends its first AT command. */
 	k_sleep(K_SECONDS(MODEM_BOOT_DELAY_SECONDS));
+	ret = host_power_profile_apply();
+	if (ret < 0) {
+		LOG_ERR("Cannot apply host power profile: %d", ret);
+		return;
+	}
 	ret = start_ppp(iface);
 	if (ret < 0) {
 		return;
@@ -197,7 +203,10 @@ static void https_worker(void *a, void *b, void *c)
 			next = 0;
 			if (k_uptime_get() - ppp_started >=
 			    PPP_START_TIMEOUT_SECONDS * MSEC_PER_SEC) {
-				restart_ppp(iface);
+				ret = restart_ppp(iface);
+				if (ret < 0) {
+					return;
+				}
 				ppp_started = k_uptime_get();
 			}
 			k_sleep(K_SECONDS(1));

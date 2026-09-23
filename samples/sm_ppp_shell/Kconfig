@@ -5,4 +5,39 @@ config HTTPS_TEST_INTERVAL_SECONDS
     range 1 86400
     default 60
 
+choice HOST_POWER_PROFILE
+	prompt "Host-controlled cellular power profile"
+	default HOST_POWER_PROFILE_NONE
+
+config HOST_POWER_PROFILE_NONE
+	bool "Do not change PSM or eDRX"
+
+config HOST_POWER_PROFILE_REGISTERED
+	bool "Registered with PSM and eDRX disabled"
+	select SM_AT_CLIENT
+	help
+	  Before PPP startup, the nRF54 disables PSM and eDRX through the
+	  Serial Modem AT interface and verifies the resulting configuration.
+
+config HOST_POWER_PROFILE_PSM
+	bool "PSM requested with eDRX disabled"
+	select SM_AT_CLIENT
+	help
+	  Before PPP startup, the nRF54 requests PSM, disables eDRX, and
+	  verifies the requested PSM timers through the Serial Modem AT interface.
+
+endchoice
+
+if HOST_POWER_PROFILE_PSM
+
+config HOST_POWER_PROFILE_PSM_TAU
+	string "Requested periodic TAU as a GPRS Timer 3 bit string"
+	default "00100001"
+
+config HOST_POWER_PROFILE_PSM_ACTIVE_TIME
+	string "Requested Active-Time as a GPRS Timer 2 bit string"
+	default "00000000"
+
+endif
+
 source "Kconfig.zephyr"
