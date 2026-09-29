@@ -1,0 +1,52 @@
+--- a/zephyr/drivers/modem/modem_cellular.c
++++ b/zephyr/drivers/modem/modem_cellular.c
+@@ -778,0 +779,5 @@
++#if defined(CONFIG_HOST_POWER_PROFILE_XSLEEP)
++		/* Opening UART asserts DTR; wait for Ready or the startup timeout. */
++		modem_cellular_enter_state(data, MODEM_CELLULAR_STATE_AWAIT_POWER_ON);
++		break;
++#endif
+@@ -1345,0 +1351,10 @@
++#if defined(CONFIG_HOST_POWER_PROFILE_XSLEEP)
++		/* The nRF91 SLM must receive XSLEEP while its AT DLCI is still open. */
++		if (config->shutdown_chat_script != NULL && data->cmd_pipe != NULL) {
++			/* SLM returns its AT channel to DLCI 1 when PPP stops. */
++			data->cmd_pipe = data->dlci1_pipe;
++			modem_cellular_enter_state(
++				data, MODEM_CELLULAR_STATE_RUN_SHUTDOWN_SCRIPT);
++			break;
++		}
++#endif
+@@ -1451,0 +1467,4 @@
++#if defined(CONFIG_HOST_POWER_PROFILE_XSLEEP)
++		/* Restore a known raw-AT state before a later resume attempt. */
++		modem_cellular_enter_state(data, MODEM_CELLULAR_STATE_INIT_POWER_OFF);
++#else
+@@ -1454 +1473 @@
+-
++#endif
+@@ -1458 +1476,0 @@
+-		modem_pipe_close_async(data->uart_pipe);
+@@ -1459,0 +1478,4 @@
++		/* XSLEEP must release CMUX before closing UART so DTR is deasserted. */
++#if !defined(CONFIG_HOST_POWER_PROFILE_XSLEEP)
++		modem_pipe_close_async(data->uart_pipe);
++#endif
+@@ -2845,0 +2868,14 @@
++#if defined(CONFIG_HOST_POWER_PROFILE_XSLEEP)
++MODEM_CHAT_SCRIPT_CMDS_DEFINE(nordic_nrf91_slm_shutdown_chat_script_cmds,
++			      MODEM_CHAT_SCRIPT_CMD_RESP("AT+CFUN=4", ok_match),
++			      MODEM_CHAT_SCRIPT_CMD_RESP("AT#XSLEEP=1", ok_match));
++
++MODEM_CHAT_SCRIPT_DEFINE(nordic_nrf91_slm_shutdown_chat_script,
++			 nordic_nrf91_slm_shutdown_chat_script_cmds, abort_matches,
++			 modem_cellular_chat_callback_handler, 15);
++
++#define NORDIC_NRF91_SLM_SHUTDOWN_CHAT_SCRIPT (&nordic_nrf91_slm_shutdown_chat_script)
++#else
++#define NORDIC_NRF91_SLM_SHUTDOWN_CHAT_SCRIPT NULL
++#endif
++
+@@ -3203 +3239 @@
+-				       NULL)
++				       NORDIC_NRF91_SLM_SHUTDOWN_CHAT_SCRIPT)

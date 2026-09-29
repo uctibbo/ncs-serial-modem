@@ -23,7 +23,7 @@ LOG_MODULE_REGISTER(https_test, LOG_LEVEL_INF);
 #define IO_TIMEOUT_MS 15000
 #define SNTP_TIMEOUT_MS 5000
 #define MODEM_BOOT_DELAY_SECONDS 2
-#define PPP_START_TIMEOUT_SECONDS 90
+#define PPP_START_TIMEOUT_SECONDS 180
 #define PPP_RESTART_DELAY_SECONDS 2
 
 struct request_result {
@@ -159,6 +159,29 @@ static int restart_ppp(struct net_if *iface)
 	return start_ppp(iface);
 }
 
+static int sleep_until_next_cycle(struct net_if *iface, int64_t deadline)
+{
+	int ret = net_if_down(iface);
+
+	if (ret < 0 && ret != -EALREADY) {
+		LOG_ERR("Cannot suspend PPP for XSLEEP: %d", ret);
+		return ret;
+	}
+
+	LOG_INF("PPP suspended; host shutdown script requested");
+	while (true) {
+		int64_t remaining = deadline - k_uptime_get();
+
+		if (remaining <= 0) {
+			break;
+		}
+		k_sleep(K_MSEC(MIN(remaining, 1000)));
+	}
+
+	LOG_INF("Sleep deadline reached; resuming PPP and waking Serial Modem with DTR");
+	return start_ppp(iface);
+}
+
 static void https_worker(void *a, void *b, void *c)
 {
 	ARG_UNUSED(a);
@@ -167,6 +190,8 @@ static void https_worker(void *a, void *b, void *c)
 	struct net_if *iface = net_if_get_first_by_type(&NET_L2_GET_NAME(PPP));
 	const int64_t interval = (int64_t)CONFIG_HTTPS_TEST_INTERVAL_SECONDS * 1000;
 	bool time_ready = false;
+	const bool sleep_between_cycles =
+		host_power_profile_suspends_between_cycles();
 	uint32_t cycle = 0;
 	int64_t next = 0;
 	int64_t ppp_started;
@@ -200,14 +225,23 @@ static void https_worker(void *a, void *b, void *c)
 			CONFIG_HTTPS_TEST_INTERVAL_SECONDS);
 	while (true) {
 		if (!connected(iface)) {
-			next = 0;
+			if (!sleep_between_cycles) {
+				next = 0;
+			}
 			if (k_uptime_get() - ppp_started >=
 			    PPP_START_TIMEOUT_SECONDS * MSEC_PER_SEC) {
-				ret = restart_ppp(iface);
-				if (ret < 0) {
-					return;
+				if (sleep_between_cycles) {
+					LOG_WRN("PPP still has no IPv4 after %d seconds; "
+						"XSLEEP profile continues waiting",
+						PPP_START_TIMEOUT_SECONDS);
+					ppp_started = k_uptime_get();
+				} else {
+					ret = restart_ppp(iface);
+					if (ret < 0) {
+						return;
+					}
+					ppp_started = k_uptime_get();
 				}
-				ppp_started = k_uptime_get();
 			}
 			k_sleep(K_SECONDS(1));
 			continue;
@@ -248,6 +282,13 @@ static void https_worker(void *a, void *b, void *c)
 
 			next += skipped * interval;
 			LOG_WRN("cycle=%u skipped_intervals=%lld", cycle, (long long)skipped);
+		}
+		if (sleep_between_cycles) {
+			ret = sleep_until_next_cycle(iface, next);
+			if (ret < 0) {
+				return;
+			}
+			ppp_started = k_uptime_get();
 		}
 	}
 }

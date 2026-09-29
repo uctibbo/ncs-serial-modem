@@ -13,7 +13,8 @@
 
 LOG_MODULE_REGISTER(host_power_profile, LOG_LEVEL_INF);
 
-#if defined(CONFIG_HOST_POWER_PROFILE_REGISTERED) || defined(CONFIG_HOST_POWER_PROFILE_PSM)
+#if defined(CONFIG_HOST_POWER_PROFILE_REGISTERED) || defined(CONFIG_HOST_POWER_PROFILE_PSM) || \
+	defined(CONFIG_HOST_POWER_PROFILE_XSLEEP)
 
 #include <sm_at_client.h>
 
@@ -112,7 +113,7 @@ static int profile_configure(void)
 		return ret;
 	}
 
-#if defined(CONFIG_HOST_POWER_PROFILE_REGISTERED)
+#if defined(CONFIG_HOST_POWER_PROFILE_REGISTERED) || defined(CONFIG_HOST_POWER_PROFILE_XSLEEP)
 	ret = command_send("AT+CPSMS=0");
 	if (ret < 0) {
 		return ret;
@@ -130,7 +131,12 @@ static int profile_configure(void)
 		return ret;
 	}
 
+#if defined(CONFIG_HOST_POWER_PROFILE_XSLEEP)
+	LOG_INF("Host power profile: host-issued XSLEEP between cycles; "
+		"PSM=off; eDRX=off; verified");
+#else
 	LOG_INF("Host power profile: registered; PSM=off; eDRX=off; verified");
+#endif
 #else
 	char command[64];
 
@@ -217,12 +223,22 @@ int host_power_profile_apply(void)
 	return profile_result;
 }
 
+bool host_power_profile_suspends_between_cycles(void)
+{
+	return IS_ENABLED(CONFIG_HOST_POWER_PROFILE_XSLEEP);
+}
+
 #else
 
 int host_power_profile_apply(void)
 {
 	LOG_INF("Host power profile: unchanged");
 	return 0;
+}
+
+bool host_power_profile_suspends_between_cycles(void)
+{
+	return false;
 }
 
 #endif

@@ -26,6 +26,15 @@ config HOST_POWER_PROFILE_PSM
 	  Before PPP startup, the nRF54 requests PSM, disables eDRX, and
 	  verifies the requested PSM timers through the Serial Modem AT interface.
 
+config HOST_POWER_PROFILE_XSLEEP
+	bool "Host-issued XSLEEP between HTTPS cycles"
+	select SM_AT_CLIENT
+	help
+	  Disable cellular PSM and eDRX during startup. After each HTTPS cycle,
+	  suspend the cellular interface. The patched NCS v3.2.1 legacy cellular
+	  driver sends AT+CFUN=4 and AT#XSLEEP=1 before releasing CMUX. Resuming
+	  the interface asserts DTR and starts the Serial Modem again.
+
 endchoice
 
 if HOST_POWER_PROFILE_PSM

@@ -63,11 +63,58 @@ NCS_TOOLCHAIN=/home/uc/ncs/toolchains/43683a87ea \
   -DEXTRA_CONF_FILE=overlay-power-psm.conf
 ```
 
+Build the host-only XSLEEP experiment after applying its small NCS v3.2.1
+legacy-driver patch:
+
+```sh
+cd /home/uc/ncs/v3.2.1
+patch -p1 < /home/uc/Documents/appblocks/ncs-serial-modem/samples/sm_ppp_shell/patches/ncs-v3.2.1-nrf91-slm-xsleep.patch
+
+cd /home/uc/Documents/appblocks/ncs-serial-modem/samples/sm_ppp_shell
+NCS_TOOLCHAIN=/home/uc/ncs/toolchains/43683a87ea \
+  ~/bin/ncs-west v3.2.1 build --sysbuild -p always \
+  -b raytac_an54l15q_db/nrf54l15/cpuapp \
+  -d build-host-xsleep-hostonly . -- \
+  -DZEPHYR_EXTRA_MODULES=/home/uc/Documents/appblocks/ncs-serial-modem \
+  -DEXTRA_CONF_FILE=overlay-power-xsleep.conf
+```
+
+The patch adds a shutdown script only when
+`CONFIG_HOST_POWER_PROFILE_XSLEEP=y`. When the host calls `net_if_down()`,
+the driver stops PPP and sends `AT+CFUN=4` followed by `AT#XSLEEP=1` while
+the AT DLCI is still open. After the command succeeds, the unmodified nRF9151
+Serial Modem enters System OFF. At the next request deadline, `net_if_up()`
+opens the UART, asserts DTR, and causes the nRF9151 to wake through reset before
+the driver rebuilds CMUX and PPP.
+
+This profile requires the existing DTR and RI wiring. It does not require P0.22
+or an nRESET wire. `AT+CFUN=4` is sent before XSLEEP to avoid the `CFUN=0`
+nonvolatile-memory write described for an active modem. XSLEEP remains an
+experimental power-measurement feature and is not a production power-control
+interface.
+
 Flash only the corresponding nRF54 `merged.hex`. Continue using the unchanged
 nRF9151 Serial Modem image:
 
 - `build-host-registered/merged.hex`
 - `build-host-psm/merged.hex`
+- `build-host-xsleep-hostonly/merged.hex`
+
+The XSLEEP build should log:
+
+```text
+Host power profile: host-issued XSLEEP between cycles; PSM=off; eDRX=off; verified
+PPP suspended; host shutdown script requested
+Sleep deadline reached; resuming PPP and waking Serial Modem with DTR
+```
+
+For a measurement run, do not attach the nRF9151 debugger after it enters
+System OFF because starting a debug session wakes the device. Revert the local SDK patch when this experiment is no longer needed:
+
+```sh
+cd /home/uc/ncs/v3.2.1
+patch -R -p1 < /home/uc/Documents/appblocks/ncs-serial-modem/samples/sm_ppp_shell/patches/ncs-v3.2.1-nrf91-slm-xsleep.patch
+```
 
 The registered build must log
 `Host power profile: registered; PSM=off; eDRX=off; verified` before PPP starts.
