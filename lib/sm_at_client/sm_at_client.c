@@ -73,6 +73,7 @@ static K_SEM_DEFINE(at_rsp, 0, 1);
 
 static sm_data_handler_t data_handler;
 static enum at_cmd_state sm_at_state;
+static bool initialized;
 
 #if defined(CONFIG_SM_AT_CLIENT_SHELL)
 static const struct shell *global_shell;
@@ -787,12 +788,10 @@ static int gpio_init(void)
 int sm_at_client_init(sm_data_handler_t handler, bool automatic, k_timeout_t inactivity)
 {
 	int err;
-	static bool initialized;
 
 	if (initialized) {
 		return -EALREADY;
 	}
-	initialized = true;
 
 	data_handler = handler;
 	ri_handler = NULL;
@@ -807,6 +806,9 @@ int sm_at_client_init(sm_data_handler_t handler, bool automatic, k_timeout_t ina
 	err = uart_init(uart_dev);
 	if (err) {
 		LOG_ERR("UART init (%d)", err);
+		if (gpio_is_ready_dt(&dtr_config.ri_gpio)) {
+			gpio_remove_callback_dt(&dtr_config.ri_gpio, &gpio_cb);
+		}
 		return -EFAULT;
 	}
 
@@ -825,6 +827,7 @@ int sm_at_client_init(sm_data_handler_t handler, bool automatic, k_timeout_t ina
 	dtr_config.automatic = automatic;
 	dtr_config.inactivity = inactivity;
 	dtr_config.active = true;
+	initialized = true;
 
 	reschedule_disable();
 
@@ -833,23 +836,51 @@ int sm_at_client_init(sm_data_handler_t handler, bool automatic, k_timeout_t ina
 
 int sm_at_client_uninit(void)
 {
+	struct k_work_sync work_sync;
 	int err;
+	int ret = 0;
+
+	if (!initialized) {
+		return -EALREADY;
+	}
+
+	k_work_cancel_delayable_sync(&dtr_config.dtr_uart_disable_work, &work_sync);
 
 	err = dtr_uart_disable();
 	if (err) {
 		LOG_ERR("Failed to disable DTR UART (%d).", err);
+		ret = err;
+	}
+	/* UART_RX_DISABLED queues rx_process_work. Flush it while recovery is
+	 * disabled so all referenced RX buffers are returned before another
+	 * client installs a UART callback. */
+	k_work_flush_delayable(&rx_process_work, &work_sync);
+
+	if (gpio_is_ready_dt(&dtr_config.ri_gpio)) {
+		err = gpio_pin_interrupt_configure_dt(&dtr_config.ri_gpio, GPIO_INT_DISABLE);
+		if (err && ret == 0) {
+			ret = err;
+		}
+		err = gpio_remove_callback_dt(&dtr_config.ri_gpio, &gpio_cb);
+		if (err && ret == 0) {
+			ret = err;
+		}
 	}
 
 	err = gpio_pin_configure_dt(&dtr_config.dtr_gpio, GPIO_DISCONNECTED);
 	if (err) {
 		LOG_ERR("Failed to disconnect DTR pin: %d", err);
+		if (ret == 0) {
+			ret = err;
+		}
 	}
 
 	data_handler = NULL;
 	ri_handler = NULL;
 	sm_at_state = AT_CMD_OK;
+	initialized = false;
 
-	return 0;
+	return ret;
 }
 
 int sm_at_client_register_ri_handler(sm_ri_handler_t handler)

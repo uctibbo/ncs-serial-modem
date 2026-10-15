@@ -11,6 +11,10 @@ choice HOST_POWER_PROFILE
 
 config HOST_POWER_PROFILE_NONE
 	bool "Do not change PSM or eDRX"
+	select SM_AT_CLIENT
+	help
+	  Leave the modem settings unchanged at startup. The runtime
+	  power_profile shell command remains available.
 
 config HOST_POWER_PROFILE_REGISTERED
 	bool "Registered with PSM and eDRX disabled"
@@ -37,8 +41,6 @@ config HOST_POWER_PROFILE_XSLEEP
 
 endchoice
 
-if HOST_POWER_PROFILE_PSM
-
 config HOST_POWER_PROFILE_PSM_TAU
 	string "Requested periodic TAU as a GPRS Timer 3 bit string"
 	default "00100001"
@@ -47,6 +49,13 @@ config HOST_POWER_PROFILE_PSM_ACTIVE_TIME
 	string "Requested Active-Time as a GPRS Timer 2 bit string"
 	default "00000000"
 
-endif
+config HOST_POWER_PROFILE_EDRX_ACT_TYPE
+	int "eDRX access technology (4=LTE-M, 5=NB-IoT, 6=NTN NB-IoT)"
+	range 4 6
+	default 4
+
+config HOST_POWER_PROFILE_EDRX_VALUE
+	string "Requested four-bit eDRX value"
+	default "0011"
 
 source "Kconfig.zephyr"

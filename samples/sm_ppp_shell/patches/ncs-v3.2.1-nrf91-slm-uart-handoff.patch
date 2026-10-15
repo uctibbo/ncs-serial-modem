@@ -1,0 +1,117 @@
+--- a/zephyr/drivers/modem/modem_cellular.c
++++ b/zephyr/drivers/modem/modem_cellular.c
+@@ -146,6 +146,9 @@ struct modem_cellular_data {
+ 	struct k_mutex api_lock;
+ 	struct modem_cellular_event_cb cb;
+ 
++	/* True while an application temporarily owns the closed raw UART. */
++	bool uart_handed_off;
++
+ 	/* Ring interrupt */
+ 	struct gpio_callback ring_gpio_cb;
+ };
+@@ -2024,6 +2027,11 @@ static int modem_cellular_pm_action(const struct device *dev, enum pm_device_act
+ 
+ 	switch (action) {
+ 	case PM_DEVICE_ACTION_RESUME:
++		if (data->uart_handed_off) {
++			ret = -EBUSY;
++			break;
++		}
++
+ 		modem_cellular_delegate_event(data, MODEM_CELLULAR_EVENT_RESUME);
+ 		ret = 0;
+ 		break;
+@@ -2112,6 +2120,92 @@ static void modem_cellular_init_apn(struct modem_cellular_data *data)
+ 				       modem_cellular_chat_callback_handler);
+ }
+ 
++/*
++ * Experimental NCS v3.2.1 compatibility API. The application must suspend
++ * the cellular device before calling begin(), and must call end() before it
++ * resumes the device. This is intentionally not part of the cellular API: it
++ * exists only to test a controlled UART handoff with the legacy driver.
++ */
++int modem_cellular_uart_handoff_begin(const struct device *dev)
++{
++	struct modem_cellular_data *data = dev->data;
++	int ret;
++
++	k_mutex_lock(&data->api_lock, K_FOREVER);
++	if (data->state != MODEM_CELLULAR_STATE_IDLE || data->uart_handed_off) {
++		ret = -EBUSY;
++		goto out;
++	}
++
++	ret = modem_pipe_close(data->uart_pipe, K_SECONDS(2));
++	if (ret < 0) {
++		goto out;
++	}
++	modem_pipe_release(data->uart_pipe);
++	data->uart_handed_off = true;
++
++out:
++	k_mutex_unlock(&data->api_lock);
++	return ret;
++}
++
++int modem_cellular_uart_handoff_end(const struct device *dev)
++{
++	struct modem_cellular_data *data = dev->data;
++	const struct modem_cellular_config *config = dev->config;
++	const struct gpio_dt_spec *dtr_gpio = NULL;
++	int ret = 0;
++
++	k_mutex_lock(&data->api_lock, K_FOREVER);
++	if (data->state != MODEM_CELLULAR_STATE_IDLE || !data->uart_handed_off) {
++		ret = -EBUSY;
++		goto out;
++	}
++
++	/* sm_at_client_uninit() disconnects DTR. Restore the driver's GPIO
++	 * configuration before rebuilding its UART backend and callback. */
++	if (modem_cellular_gpio_is_enabled(&config->dtr_gpio)) {
++		ret = gpio_pin_configure_dt(&config->dtr_gpio, GPIO_OUTPUT_INACTIVE);
++		if (ret < 0) {
++			goto out;
++		}
++		dtr_gpio = &config->dtr_gpio;
++	}
++	if (modem_cellular_gpio_is_enabled(&config->ring_gpio)) {
++		ret = gpio_pin_configure_dt(&config->ring_gpio, GPIO_INPUT);
++		if (ret < 0) {
++			goto out;
++		}
++		ret = gpio_pin_interrupt_configure_dt(&config->ring_gpio,
++						  GPIO_INT_EDGE_TO_ACTIVE);
++		if (ret < 0) {
++			goto out;
++		}
++	}
++
++	const struct modem_backend_uart_config uart_backend_config = {
++		.uart = config->uart,
++		.dtr_gpio = dtr_gpio,
++		.receive_buf = data->uart_backend_receive_buf,
++		.receive_buf_size = ARRAY_SIZE(data->uart_backend_receive_buf),
++		.transmit_buf = data->uart_backend_transmit_buf,
++		.transmit_buf_size = ARRAY_SIZE(data->uart_backend_transmit_buf),
++	};
++
++	data->uart_pipe = modem_backend_uart_init(&data->uart_backend,
++						  &uart_backend_config);
++	if (data->uart_pipe == NULL) {
++		ret = -ENODEV;
++		goto out;
++	}
++	data->cmd_pipe = NULL;
++	data->uart_handed_off = false;
++
++out:
++	k_mutex_unlock(&data->api_lock);
++	return ret;
++}
++
+ static int modem_cellular_init(const struct device *dev)
+ {
+ 	struct modem_cellular_data *data = (struct modem_cellular_data *)dev->data;

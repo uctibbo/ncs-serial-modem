@@ -169,6 +169,21 @@ Disadvantages:
 Conclusion: acceptable for collecting comparable power data on the pinned test
 setup; not recommended as the product solution.
 
+## Runtime experiment: controlled raw-UART handoff
+
+Branch `v321_runtime_uart_handoff` replaces the priority-98 dependency with a
+small compatibility patch to the pinned legacy driver. The host can issue
+`power_profile registered`, `psm`, `edrx`, or `psm_edrx` while running. The operation
+stops PPP, waits for the driver to reach its suspended idle state, temporarily
+hands the closed raw UART to `sm_at_client`, applies and verifies the requested
+settings in `CFUN=4`, restores the legacy UART backend and callbacks, and starts
+PPP again. The driver's normal `CFUN=1` then starts a new registration.
+
+This proves that runtime profile selection can be compiled on NCS v3.2.1 with
+one nRF9151 Serial Modem binary. It is still a carried SDK patch and needs
+hardware stress testing across repeated changes, UART-idle wakeups, command
+failures, and loss of coverage.
+
 ## Workaround 2: configure the profile in the nRF9151 application
 
 The earlier `v321_power_tests` branch implemented the commands in Serial Modem:

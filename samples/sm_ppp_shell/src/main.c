@@ -211,7 +211,7 @@ static void https_worker(void *a, void *b, void *c)
 	/* On simultaneous board power-up, let Serial Modem advertise Ready before
 	 * the cellular driver sends its first AT command. */
 	k_sleep(K_SECONDS(MODEM_BOOT_DELAY_SECONDS));
-	ret = host_power_profile_apply();
+	ret = host_power_profile_apply(iface);
 	if (ret < 0) {
 		LOG_ERR("Cannot apply host power profile: %d", ret);
 		return;
@@ -248,9 +248,15 @@ static void https_worker(void *a, void *b, void *c)
 		}
 		/* A later disconnect gets a fresh recovery window. */
 		ppp_started = k_uptime_get();
+		host_power_profile_network_lock();
+		if (!connected(iface)) {
+			host_power_profile_network_unlock();
+			continue;
+		}
 		if (!time_ready) {
 			ret = synchronize_time();
 			if (ret < 0) {
+				host_power_profile_network_unlock();
 				LOG_WRN("Time sync failed: %d; retry in 10 seconds", ret);
 				k_sleep(K_SECONDS(10));
 				continue;
@@ -263,6 +269,7 @@ static void https_worker(void *a, void *b, void *c)
 			next = now;
 		}
 		if (now < next) {
+			host_power_profile_network_unlock();
 			k_sleep(K_MSEC(MIN(next - now, 1000)));
 			continue;
 		}
@@ -275,6 +282,7 @@ static void https_worker(void *a, void *b, void *c)
 				cycle, ret == 0 ? "SUCCESS" : "FAIL", result.status,
 				(unsigned int)result.bytes, result.complete,
 				(long long)(k_uptime_get() - start), ret);
+		host_power_profile_network_unlock();
 		next += interval;
 		now = k_uptime_get();
 		if (next <= now) {

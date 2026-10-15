@@ -36,10 +36,48 @@ NCS_TOOLCHAIN=/home/uc/ncs/toolchains/43683a87ea \
 
 ## Host-controlled cellular power profiles
 
-The nRF54 can configure the nRF9151 modem before starting CMUX and PPP. It
-temporarily uses the Serial Modem AT interface, verifies the requested setting,
-releases the UART, and then starts the normal cellular driver. The Serial Modem
-firmware on the nRF9151 is unchanged.
+The nRF54 can now change the requested profile at runtime while the nRF9151
+continues to use one unchanged Serial Modem image. Apply the compatibility
+patch to the pinned host SDK, then build without a profile overlay:
+
+```sh
+cd /home/uc/ncs/v3.2.1
+patch --batch -p1 < /home/uc/Documents/appblocks/ncs-serial-modem/samples/sm_ppp_shell/patches/ncs-v3.2.1-nrf91-slm-uart-handoff.patch
+
+cd /home/uc/Documents/appblocks/ncs-serial-modem/samples/sm_ppp_shell
+NCS_TOOLCHAIN=/home/uc/ncs/toolchains/43683a87ea \
+  ~/bin/ncs-west v3.2.1 build --sysbuild -p always \
+  -b raytac_an54l15q_db/nrf54l15/cpuapp \
+  -d build-runtime-handoff . -- \
+  -DZEPHYR_EXTRA_MODULES=/home/uc/Documents/appblocks/ncs-serial-modem
+```
+
+Use the RTT shell without reflashing or resetting either processor:
+
+```text
+power_profile status
+power_profile psm
+power_profile edrx
+power_profile psm_edrx
+power_profile registered
+```
+
+`psm` requests the configured TAU and Active-Time and disables eDRX; `edrx`
+requests eDRX and disables PSM; `psm_edrx` requests both; and `registered`
+disables both. Each change stops PPP, waits until the
+legacy driver is suspended, temporarily gives its closed raw UART to
+`sm_at_client`, sends `AT+CFUN=4` and the profile commands, restores the
+driver's DTR/RI configuration and UART callback, and restarts PPP. The normal
+legacy dial sequence then sends `AT+CFUN=1`, starting a new registration with
+the requested settings.
+
+The command reports that the modem accepted and read back the request. Network
+grant and actual PSM entry still require network diagnostics or measurement.
+The HTTPS worker serializes network operations against profile switching.
+
+The profile overlays below remain useful for selecting a repeatable initial
+profile, but runtime switching is included even in the default
+`HOST_POWER_PROFILE_NONE` build.
 
 Build profile 1, registered with PSM and eDRX disabled:
 
@@ -116,11 +154,10 @@ cd /home/uc/ncs/v3.2.1
 patch -R -p1 < /home/uc/Documents/appblocks/ncs-serial-modem/samples/sm_ppp_shell/patches/ncs-v3.2.1-nrf91-slm-xsleep.patch
 ```
 
-The registered build must log
-`Host power profile: registered; PSM=off; eDRX=off; verified` before PPP starts.
-The PSM build must log `Host power profile: PSM=requested` with the requested
-TAU and Active-Time. A verification failure stops the HTTPS worker so a power
-measurement cannot silently run with the wrong profile. `AT+CPSMS?` verifies
+The registered build must log `Runtime power profile applied: registered`.
+The PSM build must log `Runtime power profile applied: psm`. A verification
+failure stops startup or makes the shell command fail, so a power measurement
+cannot silently run with the wrong profile. `AT+CPSMS?` verifies
 the request stored by the modem; the network-granted timers still depend on the
 serving network. Confirm actual PSM entry electrically or through a separate
 diagnostic run.
@@ -139,6 +176,13 @@ A cycle can exceed its configured interval. Missed deadlines are counted and ski
 queued; a single worker prevents overlap. Network loss pauses requests until
 PPP connectivity returns and then begins a new schedule. Neither board is
 rebooted automatically. SNTP runs once per application boot, not per request.
+
+Remove the runtime-handoff SDK patch with:
+
+```sh
+cd /home/uc/ncs/v3.2.1
+patch --batch -R -p1 < /home/uc/Documents/appblocks/ncs-serial-modem/samples/sm_ppp_shell/patches/ncs-v3.2.1-nrf91-slm-uart-handoff.patch
+```
 
 ## Hardware validation
 
