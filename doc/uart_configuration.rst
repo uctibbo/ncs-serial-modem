@@ -101,13 +101,13 @@ The following tables shows how to connect the UART pins to the corresponding pin
          * - UART Signal
            - nRF9151 Pin
          * - TX
-           - P0.10
+           - P0.02
          * - RX
-           - P0.11
+           - P0.03 (pull-up)
          * - RTS
-           - P0.12
+           - P0.06
          * - CTS
-           - P0.13
+           - P0.07 (pull-up)
          * - DTR
            - P0.31 (active low, pull-up)
          * - RI
@@ -117,7 +117,8 @@ The following tables shows how to connect the UART pins to the corresponding pin
       * Baud rate: 115200
       * Hardware flow control: Enabled
 
-      All UART pins are in the P4 connector on the DK board.
+      UART data and flow control pins (TX, RX, RTS, CTS) are on the P4 connector on the DK board,
+      while control signals (DTR, RI) are on the P3 connector.
 
       The DTR pin defaults to pull-up, so the external MCU must assert DTR to power on the UART.
       When UART power management is not used, the DTR pin should be pulled to active state.
