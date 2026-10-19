@@ -21,7 +21,7 @@
 /* DTR with external MCU */
 &uart2 {
 	compatible = "nordic,nrf-uarte";
-	current-speed = <115200>;
+	current-speed = <1000000>;
 	hw-flow-control;
 	status = "okay";
 
