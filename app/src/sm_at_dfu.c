@@ -420,8 +420,8 @@ static int handle_at_xdfu_write(enum at_parser_cmd_type cmd_type, struct at_pars
 			xdfu_bytes_written = 0;
 			xdfu_status = 0;
 
-			err = enter_datamode(xdfu_datamode_callback,
-						xdfu_app_datamode_context.len);
+			err = enter_datamode_bulk(xdfu_datamode_callback,
+						     xdfu_app_datamode_context.len);
 			if (err) {
 				LOG_ERR("Failed to enter data write mode: %d", err);
 				return err;
@@ -454,8 +454,8 @@ static int handle_at_xdfu_write(enum at_parser_cmd_type cmd_type, struct at_pars
 			xdfu_bytes_written = 0;
 			xdfu_status = 0;
 
-			err = enter_datamode(xdfu_datamode_callback,
-						xdfu_delta_mfw_datamode_context.len);
+			err = enter_datamode_bulk(xdfu_datamode_callback,
+						     xdfu_delta_mfw_datamode_context.len);
 			if (err) {
 				LOG_ERR("Failed to enter data write mode: %d", err);
 				return err;
@@ -501,8 +501,8 @@ static int handle_at_xdfu_write(enum at_parser_cmd_type cmd_type, struct at_pars
 			xdfu_bytes_written = 0;
 			xdfu_status = 0;
 
-			err = enter_datamode(xdfu_datamode_callback,
-						xdfu_full_mfw_datamode_context.len);
+			err = enter_datamode_bulk(xdfu_datamode_callback,
+						     xdfu_full_mfw_datamode_context.len);
 			if (err) {
 				LOG_ERR("Failed to enter data write mode: %d", err);
 				return err;

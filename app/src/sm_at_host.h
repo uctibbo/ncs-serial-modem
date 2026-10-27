@@ -147,6 +147,21 @@ void data_send(struct modem_pipe *pipe, const uint8_t *data, size_t len);
  */
 int enter_datamode(sm_datamode_handler_t handler, size_t data_len);
 
+/**
+ * @brief Enter counted data mode using block-oriented pipe reception
+ *
+ * This is an opt-in fast path for handlers that provide an exact data length
+ * and can consume blocks directly. The ordinary data mode path remains
+ * unchanged for all other users.
+ *
+ * @param handler Data mode handler provided by requesting module.
+ * @param data_len Exact number of bytes expected; must be non-zero.
+ *
+ * @retval 0 If the operation was successful.
+ *         Otherwise, a (negative) error code is returned.
+ */
+int enter_datamode_bulk(sm_datamode_handler_t handler, size_t data_len);
+
 bool in_datamode_ctx(struct sm_at_host_ctx *ctx);
 bool in_datamode_pipe(struct modem_pipe *pipe);
 bool in_at_mode_ctx(struct sm_at_host_ctx *ctx);

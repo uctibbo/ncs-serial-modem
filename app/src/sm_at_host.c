@@ -74,6 +74,7 @@ struct data_mode {
 	uint16_t time_limit;  /* Time limit for idle period before sending in ms. */
 	size_t data_len;      /* Remaining bytes in counted mode (0 in terminator mode). */
 	bool terminator_mode; /* True if data mode was entered without data_len. */
+	bool bulk_counted;    /* Block-oriented receive path for opt-in counted users. */
 };
 
 /** Buffered URC message targeting a specific pipe */
@@ -86,6 +87,7 @@ struct urc_msg {
 static void idle_timer_handler(struct k_timer *timer);
 static void idle_work(struct sm_at_host_ctx *ctx);
 static void raw_send_scheduled(struct k_work *work);
+static int counted_bulk_rx_handler(struct sm_at_host_ctx *ctx, struct modem_pipe *pipe);
 static void at_pipe_rx_work_fn(struct k_work *work);
 static void at_pipe_event_handler(struct modem_pipe *pipe, enum modem_pipe_event event,
 				  void *user_data);
@@ -460,14 +462,21 @@ static void at_pipe_rx_work_fn(struct k_work *work)
 
 	/* Read data from ctx->pipe */
 	do {
-		ret = modem_pipe_receive(pipe, &rx_buf, sizeof(rx_buf));
+		bool bulk_receive =
+			get_sm_mode(ctx) == SM_DATA_MODE && ctx->data_mode.bulk_counted;
+
+		if (bulk_receive) {
+			ret = counted_bulk_rx_handler(ctx, pipe);
+		} else {
+			ret = modem_pipe_receive(pipe, &rx_buf, sizeof(rx_buf));
+		}
 		if (ret < 0) {
 			LOG_ERR("Pipe receive failed: %d ctx=%p pipe=%p", ret, (void *)ctx,
 				(void *)pipe);
 			break;
 		}
 
-		if (ret > 0) {
+		if (ret > 0 && !bulk_receive) {
 			/* Process received AT data */
 			sm_at_receive(ctx, rx_buf);
 		}
@@ -698,6 +707,7 @@ static bool exit_datamode(struct sm_at_host_ctx *ctx)
 		ctx->data_mode.handler = NULL;
 		ctx->data_mode.data_len = 0;
 		ctx->data_mode.terminator_mode = false;
+		ctx->data_mode.bulk_counted = false;
 		ctx->quit_str_match = 0;
 
 		k_mutex_lock(&ctx->mutex_data, K_FOREVER);
@@ -794,6 +804,62 @@ static void write_data_buf(const uint8_t *buf, size_t len)
 			raw_send(SM_DATAMODE_FLAGS_MORE_DATA);
 		}
 	}
+}
+
+/* Receive an exact-length data-mode payload directly into the existing ring
+ * buffer. This avoids the ordinary per-byte pipe read, mutex, and timer work.
+ * Only explicitly opted-in counted-mode users enter this path.
+ */
+static int counted_bulk_rx_handler(struct sm_at_host_ctx *ctx, struct modem_pipe *pipe)
+{
+	uint8_t *buf;
+	size_t claim;
+	int ret;
+
+	k_timer_stop(&ctx->data_inactivity_timer);
+	k_mutex_lock(&ctx->mutex_data, K_FOREVER);
+
+	if (ring_buf_space_get(&ctx->data_rb) == 0) {
+		raw_send(SM_DATAMODE_FLAGS_MORE_DATA);
+		if (get_sm_mode(ctx) != SM_DATA_MODE || !ctx->data_mode.bulk_counted) {
+			ret = -EIO;
+			goto out;
+		}
+	}
+
+	claim = ring_buf_put_claim(&ctx->data_rb, &buf,
+				   MIN(ctx->data_mode.data_len,
+				       (size_t)CONFIG_SM_DATAMODE_BUF_SIZE));
+	if (claim == 0) {
+		ret = -ENOSPC;
+		goto out;
+	}
+
+	ret = modem_pipe_receive(pipe, buf, claim);
+	if (ret <= 0) {
+		ring_buf_put_finish(&ctx->data_rb, 0);
+		goto out;
+	}
+
+	ring_buf_put_finish(&ctx->data_rb, ret);
+	ctx->data_mode.data_len -= ret;
+
+	if (ctx->data_mode.data_len == 0) {
+		raw_send(SM_DATAMODE_FLAGS_NONE);
+		(void)exit_datamode(ctx);
+	} else if (ring_buf_space_get(&ctx->data_rb) == 0) {
+		raw_send(SM_DATAMODE_FLAGS_MORE_DATA);
+	}
+
+out:
+	k_mutex_unlock(&ctx->mutex_data);
+
+	if (get_sm_mode(ctx) == SM_DATA_MODE) {
+		k_timer_start(&ctx->data_inactivity_timer,
+			      K_MSEC(ctx->data_mode.time_limit), K_NO_WAIT);
+	}
+
+	return ret;
 }
 
 static void raw_send_scheduled(struct k_work *work)
@@ -1611,11 +1677,13 @@ static uint16_t get_min_data_mode_idle_timeout_ms(void)
 	return min_time_limit;
 }
 
-int enter_datamode(sm_datamode_handler_t handler, size_t data_len)
+static int enter_datamode_internal(sm_datamode_handler_t handler, size_t data_len,
+				   bool bulk_counted)
 {
 	struct sm_at_host_ctx *ctx = sm_at_host_get_current();
 
-	if (handler == NULL || ctx->data_mode.handler != NULL ||
+	if (handler == NULL || (bulk_counted && data_len == 0) ||
+	    ctx->data_mode.handler != NULL ||
 	    set_sm_mode(ctx, SM_DATA_MODE) == false) {
 		LOG_ERR("Failed to enter data mode");
 		return -EINVAL;
@@ -1628,12 +1696,23 @@ int enter_datamode(sm_datamode_handler_t handler, size_t data_len)
 	ctx->data_mode.handler = handler;
 	ctx->data_mode.data_len = data_len;
 	ctx->data_mode.terminator_mode = (data_len == 0);
+	ctx->data_mode.bulk_counted = bulk_counted;
 	if (ctx->data_mode.time_limit == 0) {
 		ctx->data_mode.time_limit = get_min_data_mode_idle_timeout_ms();
 	}
 	LOG_INF("Enter data mode");
 
 	return 0;
+}
+
+int enter_datamode(sm_datamode_handler_t handler, size_t data_len)
+{
+	return enter_datamode_internal(handler, data_len, false);
+}
+
+int enter_datamode_bulk(sm_datamode_handler_t handler, size_t data_len)
+{
+	return enter_datamode_internal(handler, data_len, true);
 }
 
 bool in_datamode_ctx(struct sm_at_host_ctx *ctx)

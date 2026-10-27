@@ -322,6 +322,12 @@ static int xdfu_write_file(size_t addr, size_t size, enum sm_xdfu_image_type typ
 			   size_t file_offset)
 {
 	int ret;
+	int64_t phase_start;
+	int64_t transfer_start = k_uptime_get();
+	uint32_t command_ms = 0;
+	uint32_t data_ms = 0;
+	uint32_t completion_ms = 0;
+	size_t chunk_count = 0;
 
 	for (size_t offset = 0; offset < size;) {
 		k_event_clear(&xdfu_event, BIT(DATA_WRITE_COMPLETE) | BIT(FAILURE));
@@ -332,21 +338,27 @@ static int xdfu_write_file(size_t addr, size_t size, enum sm_xdfu_image_type typ
 
 		LOG_INF("Writing %zu / %zu bytes (%d %%)", offset + chunk_size, size, percent);
 
+		phase_start = k_uptime_get();
 		ret = chat_cmd(xdfu_chat_instance, "AT#XDFUWRITE=%d,%zu,%zu", type, addr,
 			       chunk_size);
+		command_ms += (uint32_t)(k_uptime_get() - phase_start);
 		if (ret < 0) {
 			LOG_ERR("Failed to run XDFUWRITE: %d", ret);
 			return ret;
 		}
 
+		phase_start = k_uptime_get();
 		ret = pipe_write_file(xdfu_chat_instance->pipe, file, file_offset + offset,
 				      chunk_size);
+		data_ms += (uint32_t)(k_uptime_get() - phase_start);
 		if (ret < 0) {
 			LOG_ERR("Failed to write chunk: %d", ret);
 			return ret;
 		}
 
+		phase_start = k_uptime_get();
 		if (!wait_for_dfu_event(DATA_WRITE_COMPLETE, XDFU_DATA_WRITE_TIMEOUT)) {
+			completion_ms += (uint32_t)(k_uptime_get() - phase_start);
 			if (dfu_failed()) {
 				LOG_ERR("DFU failed during data write");
 				ret = -EIO;
@@ -356,10 +368,16 @@ static int xdfu_write_file(size_t addr, size_t size, enum sm_xdfu_image_type typ
 			}
 			return ret;
 		}
+		completion_ms += (uint32_t)(k_uptime_get() - phase_start);
 
 		offset += chunk_size;
 		addr += chunk_size;
+		chunk_count++;
 	}
+
+	LOG_INF("XDFU transfer timing: total=%lld ms, chunks=%zu, commands=%u ms, "
+		"data=%u ms, completions=%u ms",
+		k_uptime_get() - transfer_start, chunk_count, command_ms, data_ms, completion_ms);
 
 	return 0;
 }
@@ -491,6 +509,10 @@ out:
 int sm_xdfu_run(const struct device *modem, enum sm_xdfu_image_type type, const char *file)
 {
 	int ret;
+	int64_t phase_start;
+	uint32_t apply_ms = 0;
+	uint32_t reset_ms = 0;
+	uint32_t ready_ms;
 	struct modem_cellular_data *data;
 	struct modem_cellular_config *config;
 	struct fs_dirent entry;
@@ -586,7 +608,9 @@ int sm_xdfu_run(const struct device *modem, enum sm_xdfu_image_type type, const 
 			LOG_ERR("Failed to write file: %d", ret);
 			goto cleanup;
 		}
+		phase_start = k_uptime_get();
 		ret = xdfu_apply(type);
+		apply_ms = (uint32_t)(k_uptime_get() - phase_start);
 	}
 
 	if (ret == 0) {
@@ -597,7 +621,9 @@ cleanup:
 	/* Only reset on Full-modem DFU if it fails */
 	if (type != SM_XDFU_TYPE_FULL_MFW || ret < 0) {
 		k_event_clear(&xdfu_event, BIT(READY) | BIT(FAILURE));
+		phase_start = k_uptime_get();
 		int reset_ret = chat_cmd(xdfu_chat_instance, "AT#XRESET");
+		reset_ms = (uint32_t)(k_uptime_get() - phase_start);
 
 		if (reset_ret < 0) {
 			LOG_ERR("Failed to run XRESET: %d", reset_ret);
@@ -608,11 +634,17 @@ cleanup:
 	}
 
 	LOG_INF("Waiting for modem ready...");
+	phase_start = k_uptime_get();
 	if (!wait_for_dfu_event(READY, MODEM_READY_TIMEOUT)) {
 		LOG_ERR("Timeout waiting for modem ready");
 		if (ret == 0) {
 			ret = -ETIMEDOUT;
 		}
+	}
+	ready_ms = (uint32_t)(k_uptime_get() - phase_start);
+	if (type != SM_XDFU_TYPE_FULL_MFW) {
+		LOG_INF("XDFU post-transfer timing: apply=%u ms, reset=%u ms, ready=%u ms",
+			apply_ms, reset_ms, ready_ms);
 	}
 
 	modem_chat_release(&xdfu_chat_instance->chat);
