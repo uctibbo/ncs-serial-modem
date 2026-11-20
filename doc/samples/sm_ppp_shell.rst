@@ -41,6 +41,10 @@ The sample supports the following development kits:
      - ``native_sim``
      - ``native_sim``
 
+The nRF54L15 DK modem UART uses the same UART22 pinout as the OSS_ZEPHYR host
+application. It and the |SM| ``external-mcu.overlay`` use 1,000,000 baud with
+hardware flow control. The shell remains on the separate VCOM1 UART.
+
 Hardware setup for nRF54L15 DK
 ==============================
 
@@ -51,25 +55,24 @@ When using the nRF54L15 DK as the controlling device, connect the DK pins to the
 
    * - nRF54L15 DK
      - nRF91 Series DK
-   * - UART TX P0.00
+   * - UART TX P1.12
      - UART RX P0.03
-   * - UART RX P0.01
+   * - UART RX P1.13
      - UART TX P0.02
-   * - UART CTS P0.03
+   * - UART CTS P1.14
      - UART RTS P0.06
-   * - UART RTS P0.02
+   * - UART RTS P1.11
      - UART CTS P0.07
-   * - DTR OUT P1.11
+   * - DTR OUT P0.04
      - DTR IN P0.31
-   * - RI IN P1.12
+   * - RI IN P0.03
      - RI OUT P0.30
    * - GPIO GND
      - GPIO GND
 
 .. note::
-   You must disable the VCOM0 on the nRF54L15 DK to release the UART GPIO pins for communication with the |SM|.
-
-   * Use the `Board Configurator app`_ to disable the ``Connect port VCOM0`` setting.
+   Buttons 0 and 3 and LED 3 are unavailable while this modem pinout is used,
+   because their GPIOs are reassigned to the modem interface.
 
 .. note::
    The GPIO output levels on the nRF91 Series device and nRF54L15 DK must be the same.
@@ -92,11 +95,12 @@ The sample provides:
 
 * Full Zephyr networking stack (IPv4 and IPv6 support).
 * Network shell commands for interface management.
-* Network performance testing using zperf.
+* A one-byte HTTP response every 60 seconds for power-mode validation.
 * DNS resolution support.
 * Automatic modem connection management.
 * CMUX (GSM 07.10) multiplexing support with user pipes for AT command access.
 * Power management with runtime power saving.
+* Runtime PSM and eDRX configuration over a Serial Modem v2 user pipe.
 
 For more information about using the nRF91 Series SiP as a Zephyr-compatible modem, including how to use user pipes for AT commands alongside PPP, see :ref:`sm_cellular_modem`.
 
@@ -113,7 +117,7 @@ The sample is configured with the following key features:
 * Zephyr cellular modem driver with CMUX support
 * Runtime power management with automatic power saving
 * Network shell commands
-* Zperf for network performance testing
+* A deterministic one-byte transfer derived from the OSS_ZEPHYR host test
 
 The CMUX configuration enables:
 
@@ -121,6 +125,48 @@ The CMUX configuration enables:
 * 5 second idle timeout before entering power save
 * MTU size of 127 bytes for optimal performance
 * User pipes on DLC channels 3 and 4 for AT command access (available when the network interface is up)
+
+Periodic HTTP and power profiles
+================================
+
+The sample automatically brings up PPP and sends
+``GET http://httpbin.org/bytes/1?seed=54`` once every 60 seconds. Each cycle
+creates and closes a TCP connection and succeeds only after receiving an HTTP
+200 response with exactly one body byte. This is the minimum-sized ``/bytes``
+response and is derived from the proven OSS_ZEPHYR host test, keeping TLS
+outside the cellular power-mode validation. Change
+``CONFIG_HTTP_TEST_INTERVAL_SECONDS`` to select another start-to-start interval.
+
+The default build leaves the existing PSM and eDRX requests unchanged. Use one
+of these configuration fragments to apply and verify a profile after the first
+PPP connection:
+
+* ``overlay-power-registered.conf`` - disable PSM and eDRX.
+* ``overlay-power-psm.conf`` - request PSM and disable eDRX.
+* ``overlay-power-edrx.conf`` - disable PSM and request eDRX.
+* ``overlay-power-psm-edrx.conf`` - request both PSM and eDRX.
+
+The profile implementation uses a Serial Modem v2 CMUX user pipe. It sends
+``AT+CFUN=4``, configures and reads back ``AT+CPSMS`` and ``AT+CEDRXS``, then
+sends ``AT+CFUN=1`` and waits for the existing PPP interface to reconnect. It
+does not stop the network interface or take ownership of the raw UART while
+changing a profile.
+
+Profiles can also be selected while running:
+
+.. code-block:: console
+
+   uart:~$ power_profile registered
+   uart:~$ power_profile psm
+   uart:~$ power_profile edrx
+   uart:~$ power_profile psm_edrx
+   uart:~$ power_profile status
+   uart:~$ power_profile network
+
+The ``network`` command logs ``AT%XMONITOR`` and ``AT+CEDRXRDP`` responses so
+the network-provided PSM and eDRX values can be compared with the requested
+settings. UART runtime power saving is independent of cellular PSM and eDRX;
+use current measurement to confirm actual sleep entry.
 
 Building and running
 ********************
@@ -158,13 +204,13 @@ For native simulator, run the executable with the ``-attach_uart`` option:
 Testing
 *******
 
-After the sample starts, you will see the Zephyr shell prompt.
-The PPP network interface is configured to start the modem automatically when requested.
+After the sample starts, you will see the Zephyr shell prompt. The periodic
+HTTP worker starts the PPP interface automatically.
 
 Bringing up the network interface
 =================================
 
-To start the cellular modem and establish a network connection:
+To start the cellular modem manually if automatic startup failed:
 
 .. code-block:: console
 

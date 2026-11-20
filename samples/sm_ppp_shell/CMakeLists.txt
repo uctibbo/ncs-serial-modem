@@ -9,6 +9,10 @@ cmake_minimum_required(VERSION 3.20.0)
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(app)
 
-target_sources(app PRIVATE src/main.c)
-target_sources(app PRIVATE src/at_shell.c)
-target_sources(app PRIVATE src/dl_shell.c)
+target_sources(app PRIVATE
+	src/main.c
+	src/at_shell.c
+	src/dl_shell.c
+	src/periodic_http.c
+	src/v2_power_profile.c
+)

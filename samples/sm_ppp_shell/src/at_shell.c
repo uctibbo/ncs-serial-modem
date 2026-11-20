@@ -155,10 +155,10 @@ static struct modem_pipe *at_shell_get_user_pipe(const struct shell *sh)
 	}
 	for (int i = 0; i < config->user_pipes_size; i++) {
 		struct modem_cellular_user_pipe *user_pipe = &config->user_pipes[i];
-		struct modem_pipelink *pipelink = user_pipe->pipelink;
-
-		/* Find a user pipe that has not been attached */
-		if (pipelink->callback == NULL) {
+		/* A pipelink callback tracks CMUX connection changes; ownership of
+		 * the actual user pipe is represented by its pipe callback.
+		 */
+		if (user_pipe->pipe != NULL && user_pipe->pipe->callback == NULL) {
 			shell_info(sh, "Attach to DLC %hhu", user_pipe->dlci_address);
 			return user_pipe->pipe;
 		}

@@ -1,0 +1,54 @@
+# Copyright (c) 2026 Nordic Semiconductor ASA
+# SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+
+mainmenu "Serial Modem v2 periodic HTTP power test"
+
+config HTTP_TEST_INTERVAL_SECONDS
+	int "HTTP request start-to-start interval in seconds"
+	range 1 86400
+	default 60
+	help
+	  Time from the start of one request to the start of the next request.
+
+choice HOST_POWER_PROFILE
+	prompt "Initial host-controlled cellular power profile"
+	default HOST_POWER_PROFILE_NONE
+
+config HOST_POWER_PROFILE_NONE
+	bool "Leave PSM and eDRX unchanged"
+	help
+	  Do not change PSM or eDRX at startup. The runtime power_profile shell
+	  command remains available.
+
+config HOST_POWER_PROFILE_REGISTERED
+	bool "Registered with PSM and eDRX disabled"
+
+config HOST_POWER_PROFILE_PSM
+	bool "PSM requested with eDRX disabled"
+
+config HOST_POWER_PROFILE_EDRX
+	bool "eDRX requested with PSM disabled"
+
+config HOST_POWER_PROFILE_PSM_EDRX
+	bool "PSM and eDRX requested"
+
+endchoice
+
+config HOST_POWER_PROFILE_PSM_TAU
+	string "Requested periodic TAU as a GPRS Timer 3 bit string"
+	default "00100001"
+
+config HOST_POWER_PROFILE_PSM_ACTIVE_TIME
+	string "Requested Active-Time as a GPRS Timer 2 bit string"
+	default "00000000"
+
+config HOST_POWER_PROFILE_EDRX_ACT_TYPE
+	int "eDRX access technology (4=LTE-M, 5=NB-IoT, 6=NTN NB-IoT)"
+	range 4 6
+	default 4
+
+config HOST_POWER_PROFILE_EDRX_VALUE
+	string "Requested four-bit eDRX value"
+	default "0011"
+
+source "Kconfig.zephyr"

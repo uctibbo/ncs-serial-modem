@@ -9,13 +9,8 @@
  * See nRF54L15DK GPIO documentation from
  * https://docs.nordicsemi.com/bundle/ug_nrf54l15_dk/page/UG/nRF54L15_DK/hw_desription/connector_if.html
  *
- * UART0 is used for Serial Modem communication and UART1 is used for console/shell.
- *
- * Note: Disable VCOM0 from Board Configurator to release UART0 for Serial Modem.
- *
- * UART0 located on the P0 connector is the "uart30" instance in the device tree.
- * UART1 is "uart20" in the device tree and it is routed to the VCOM1 on the interface chip.
- * RI and DTR signals are located on P1 connector.
+ * UART22 is used for Serial Modem communication with the same pinout as the
+ * OSS_ZEPHYR host application. UART20 remains routed to VCOM1 for console/shell.
  */
 
 / {
@@ -29,19 +24,64 @@
 	};
 };
 
-/* Zephyr modem UART <-> nRF91 Serial Modem UART */
+&pinctrl {
+	uart22_modem_default: uart22_modem_default {
+		group1 {
+			psels = <NRF_PSEL(UART_RX, 1, 13)>,
+				<NRF_PSEL(UART_CTS, 1, 14)>;
+			bias-pull-up;
+		};
+
+		group2 {
+			psels = <NRF_PSEL(UART_TX, 1, 12)>,
+				<NRF_PSEL(UART_RTS, 1, 11)>;
+		};
+	};
+
+	uart22_modem_sleep: uart22_modem_sleep {
+		group1 {
+			psels = <NRF_PSEL(UART_TX, 1, 12)>,
+				<NRF_PSEL(UART_RX, 1, 13)>,
+				<NRF_PSEL(UART_RTS, 1, 11)>,
+				<NRF_PSEL(UART_CTS, 1, 14)>;
+			low-power-enable;
+		};
+	};
+};
+
+/* These board resources conflict with the OSS_ZEPHYR modem wiring. */
+&button0 {
+	status = "disabled";
+};
+
+&button3 {
+	status = "disabled";
+};
+
+&led3 {
+	status = "disabled";
+};
+
 &uart30 {
+	status = "disabled";
+};
+
+/* Zephyr modem UART <-> nRF91 Serial Modem UART */
+&uart22 {
 	status = "okay";
-	current-speed = <115200>;
+	current-speed = <1000000>;
 	hw-flow-control;
+	pinctrl-0 = <&uart22_modem_default>;
+	pinctrl-1 = <&uart22_modem_sleep>;
+	pinctrl-names = "default", "sleep";
 	zephyr,pm-device-runtime-auto;
 
 	/* Nordic nRF91 Serial Modem configuration */
 	modem: modem {
 		compatible = "nordic,nrf91-sm-v2";
 		status = "okay";
-		mdm-ring-gpios = <&gpio1 12 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
-		mdm-dtr-gpios = <&gpio1 11 GPIO_ACTIVE_LOW>;
+		mdm-ring-gpios = <&gpio0 3 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+		mdm-dtr-gpios = <&gpio0 4 GPIO_ACTIVE_LOW>;
 		zephyr,pm-device-runtime-auto;
 		cmux-enable-runtime-power-save;
 		cmux-close-pipe-on-power-save;
@@ -50,7 +90,7 @@
 	};
 };
 
-&gpio1 {
+&gpio0 {
 	status = "okay";
 };
 

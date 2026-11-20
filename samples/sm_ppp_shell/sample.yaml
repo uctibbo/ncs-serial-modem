@@ -1,6 +1,6 @@
 sample:
-  description: Serial Modem PPP example with shell interface
-  name: PPP shell
+  description: Serial Modem v2 PPP example with periodic HTTP and power-profile testing
+  name: PPP shell and power test
 tests:
   sample.sm_ppp_shell:
     sysbuild: true
